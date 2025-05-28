@@ -1,0 +1,199 @@
+# Pango: A Go-Powered Serverless Platform with WebAssembly
+
+May 27, 2025
+Gerald Prendi
+
+
+## What We'll Cover Today
+- Inspiration for Pango
+- Serverless Computing and it' s goals
+- Understanding WebAssembly (WASM): What, Why, and How
+- WASI
+- Go's Support with WebAssembly
+- Introducing Pango: Our Serverless WASM Platform
+- Demo 
+- Q&A
+
+
+## Inspiration for Pango
+- Name: Pan-Go
+  - Initially codenamed: "Pan"
+  - Pango name written as intended, Greek pan (παν, "all") and Japanese go (語, "language")
+- Private project that I have been working on
+- Originates from work I used to do in Research to improve Apache OpenWhisk
+- Currently in a private repository, but I plan to open source it soon.
+
+## Serverless Computing and it's goals
+- An execution model where the cloud provider or platform(me) dynamically manages resource allocation and scaling.
+- Developers deploy code (functions) without managing the underlying infrastructure (servers, OS, etc.).
+- Functions are typically event-triggered, stateless, and ephemeral.
+
+Core Goals of Serverless:
+- Cost Efficiency: Pay-per-use; no charges for idle resources.
+- Automatic Scalability: Seamlessly scales from zero to high demand.
+- Increased Developer Velocity: Focus on application logic, not infrastructure.
+
+## Challenges
+- Cold Starts
+    - The latency experienced when a function is invoked for the first time or after a period of inactivity.
+    - Less predictable performance for latency-sensitive applications.
+- Security
+    - Colocated untrusted code(user functions) on shared infrastructure
+    - Potential for resource exhaustion attacks, data leaks, etc.
+
+## WebAssembly (WASM)
+
+.image wasm.png _ 50
+
+
+- WebAssembly (abbreviated Wasm) is a *binary instruction format* for a stack-based virtual machine.
+- Designed to maintain the versionless, feature-tested, and backwards-compatible with nature of the web.
+- Like Assembly, it is a low-level language that can be compiled from higher-level languages like C, C++, Rust, and Go.
+
+.image code.png _ 600
+
+
+## Why WASM?
+- Performance: Near-native execution speed, significantly faster than JavaScript for CPU-intensive tasks.
+- Security: Strong sandboxing model. Capabilities must be explicitly granted by the host.
+- Portability: "Write Once, Run Anywhere (WASM-supported)" – consistent execution across different OS and architectures.
+- Language Diversity: Use the best language for the job; modules from different languages can interoperate.
+- Small Footprint: WASM binaries can be very compact (especially with tools like TinyGo for Go), leading to faster load times and reduced resource consumption.
+- Fast Startup: Ideal for ephemeral workloads like serverless functions due to minimal overhead.
+
+
+
+## Challenges
+
+- Ecosystem Maturity: Server-side tooling, libraries, and debugging are still evolving compared to established runtimes like JVM or Node.js.
+- Host Interaction (ABI): Defining how WASM modules communicate with the host (e.g., system calls, complex data) is crucial and relies on interfaces like WASI or custom host functions.
+- Direct System Access: Limited by design. Access to networking, filesystem, etc., is mediated by the host and standards like WASI.
+- Concurrency Model: The core WASM spec is single-threaded. (WASM threads proposal to support multi-threading).
+
+## WASI: Bridging WASM to the System
+
+.image wasi.png _ 50
+
+- Goal: Define a standard system interface for WebAssembly *outside* the browser.
+- Analogy: Think POSIX for WebAssembly. Provides a consistent way for WASM modules to interact with the underlying operating system capabilities.
+- Crucial Limitation of `wasi_snapshot_preview1`:
+No direct networking capabilities. Network access requires non-standard *host functions* or newer WASI proposals (like WASI Sockets).
+- Importance: Makes WASM a viable target for CLI tools, serverless functions, and other non-web applications.
+
+
+
+## Go & WebAssembly: A Powerful Combination
+
+- Go provides robust support for compiling to WebAssembly.
+- Compilation Targets:
+  - `GOOS=js GOARCH=wasm`: For browser environments (interacts with JavaScript via `syscall/js`).
+  - `GOOS=wasip1 GOARCH=wasm` (Go 1.21+): Targets the WASI `snapshot_preview1` interface, ideal for server-side applications.
+- Tooling:
+  - Standard Go Compiler: Full language support, but can produce larger WASM binaries.
+  - TinyGo: An LLVM-based Go compiler that produces significantly smaller WASM binaries. Excellent for resource-constrained environments and faster cold starts.
+
+## Wazero: A Go-Powered WASM Runtime
+- A zero-dependency WebAssembly runtime written entirely in Go.
+- No CGO needed, simplifying builds and deployment.
+- (This is what Pango uses!)
+
+
+## and finally ...
+
+## That's all folks!
+
+## Questions?                   Joking, we are just getting started!
+
+## Introducing Pango! Our Serverless WASM Platform
+
+- A serverless platform that executes WebAssembly (WASM) functions across a distributed network of Pangolins, managed by a central scheduler.
+- Core Technologies:
+  - Host Environment & Orchestration: Go
+  - WASM Runtime: Wazero (Pure Go, Zero CGO Dependencies)
+  - Functions: Any language compilable to WASM (e.g., Go compiled with `GOOS=wasip1 GOARCH=wasm`) although tested only with go binaries.
+- Vision: To provide a simple, efficient, and resilient platform for running WASM functions.
+
+## Pango: Platform Architecture
+
+.image arch.png _ 700
+
+## Two Main Components:
+
+- 1. Pango: The Scheduler
+  - Centralized Go application.
+  - Manages the lifecycle of Pangolins and functions.
+- 2. Pangolin: The Executor
+  - Distributed Go applications.
+  - Runs on various nodes to execute WASM functions using the embedded Wazero runtime.
+
+.image arch.png _ 300
+
+
+## Pango: The Scheduler
+
+- Pangolin Lifecycle Management
+- Function Management
+  - Handles function deployment requests.
+  - Distributes and persists functions.
+- Invocation Handling
+  - Invoke functions requests are routed by the Scheduler to an appropriate Pangolin.
+- Resilience
+  - Will talk about this later
+
+
+## Pangolin: The executor
+
+- WASM Execution Engine:
+  - Embeds the Wazero runtime to execute WASM functions.
+  - Receives deployment instructions for specific functions from the Scheduler.
+  - Handles invocation requests for its assigned functions.
+- Communication & Status:
+  - Registers with the Scheduler upon startup.
+  - Reports its health status to the Scheduler via a `/health` endpoint.
+
+.image pangolin.png _ 300
+
+## Pango: Ensuring Resilience
+
+Key Mechanisms:
+- 1. Health Monitoring:
+  - Scheduler periodically checks Pangolin health (configurable interval & timeout).
+- 2. Function Storage (Scheduler):
+  - Ensures function code is not lost if a Pangolin fails.
+- 3. Automatic Redistribution:
+  - Redeploys functions from unhealthy Pangolins to healthy ones.
+
+## API Endpoints
+Scheduler - User Facing:
+
+.image api_pango.png _ 500
+
+Pangolin - Internal:
+
+.image api_pangolin.png _ 500
+
+## Pango in Action! (Demo)
+
+
+## Pango: Current Limitations
+
+- Networking from WASM: Due to WASI `preview1`, direct outbound network calls from WASM functions are not standard. Wazero has some implementation to support this.
+- Function Interface: Missing a more structured SDK/interface, currently a simple input, output is available.
+- Function Storage: Scheduler stores binaries in memory;
+- State Management for Functions: No built-in persistent state for functions themselves.
+- Observability: Basic health checks exist; deeper metrics, tracing, and logging per function would enhance operational insight.
+
+## Future Work Ideas:
+
+- Standardized Host Functions: Define and implement common host functions for networking, external service calls, etc., callable from WASM.
+- Persistent Function Storage: Integrate with external binary storage.
+- Advanced Scheduling: Load balancing, affinity, resource-aware scheduling.
+- Improved Observability: Metrics (Prometheus), tracing (OpenTelemetry), centralized logging.
+- Security Enhancements: More granular capability management for functions.
+- Support for TinyGo: Explicit guidance and testing for functions compiled with TinyGo.
+
+## That's all folks! For real this time!
+## Questions?
+
+##
+##

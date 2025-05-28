@@ -1,0 +1,9 @@
+GOOS=wasip1 GOARCH=wasm go build -o hello.wasm .
+
+# cloud
+curl -X POST -F "name=hello" -F wasmfile=@./functions/hello.wasm https://pango.cloud.gprendi.dev/deploy-function
+curl -X POST -H "Content-Type: application/json" -d '{"name": "hello", "input": "Francesco"}' https://pango.cloud.gprendi.dev/invoke-function
+
+# local
+curl -X POST -F "name=hello" -F wasmfile=@./functions/hello.wasm http://localhost:5656/deploy-function
+curl -X POST -H "Content-Type: application/json" -d '{"name": "hello", "input": "Docker User"}' http://localhost:5656/invoke-function
